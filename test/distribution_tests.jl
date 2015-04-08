@@ -134,7 +134,7 @@ facts("Smoothing FeatureVector has correct probabilties before and after") do
   @fact probability(d1,"unk") => (1/(3+20))
 
   #good-turing smoothing
-  dict3 = ["the" => 15, "of" => 16, "what" => 1, "a" => 1, "unique" => 1, "word" => 1, "twice" => 2, "two" => 2, "party" => 2, "three" => 3]
+  dict3 = ["the"=>15,"of"=>16,"what"=>1,"a"=>1,"unique"=>1,"word"=>1,"twice"=>2,"two"=>2,"party"=>2,"three"=>3]
   fv3 = FeatureVector(dict3)
   d3 = Distribution(fv3)
   goodturing_smoothing!(d3)
@@ -148,4 +148,35 @@ facts("Smoothing FeatureVector has correct probabilties before and after") do
   @fact probability(d1,"word") => (7/20)
   @fact probability(d1,"another") => (13/20)
   @fact probability(d1,"unk") => (0/20)
+end
+
+facts("Smoothed probabilties sum to 1") do
+  dict = ["the"=>15,"of"=>16,"what"=>1,"a"=>1,"unique"=>1,"word"=>1,"twice"=>2,"two"=>2,"party"=>2,"three"=>3]
+  fv = FeatureVector(dict)
+  d = Distribution(fv)
+
+  #no smoothing
+  sum=0
+  for feature in features(d) 
+    sum += probability(d, feature)
+  end
+  @fact sum => 1
+
+  #delta smoothing
+  delta_smoothing!(d) 
+  sum = 0
+  for feature in features(d)
+    sum += probability(d, feature)
+  end
+  sum += probability(d,"unk")
+  @fact sum => 1
+
+  #good-turing smoothing
+  goodturing_smoothing!(d)
+  sum = 0
+  for feature in features(d)
+    sum += probability(d, feature)
+  end
+  sum += probability(d,"unk")
+  @fact sum =>1
 end

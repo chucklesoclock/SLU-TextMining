@@ -106,7 +106,7 @@ function _δ_smoothing(d::Distribution, key, data::Array)
   return (d.space[key]+data[1])/(data[1]*(data[2]+1)+data[3])
 end
 
-#simple good-turing smoothing
+#good turing count adjust, no smoothing for unseen frequencies
 function goodturing_smoothing!(d::Distribution{FeatureVector})
   freqs = FeatureVector() 
   for value in values(d.space)
@@ -139,4 +139,43 @@ function _gt_smoothing(d::Distribution, key, data::Array)
   c = d.space.vector_sum[key]
   c_adjust = (c+1) * (data[2][c+1]/data[2][c])
   return c_adjust / data[1]
+end
+
+#good-turing smoothing without tears
+#by gale, at&t labs
+function simplegoodturing_smoothing!(d::Distribution)
+  freqs = FeatureVector() 
+  for frequency in values(d.space.vector_sum)
+    freqs[frequency] += 1
+  end
+  iter = freq_list(freqs, (a,b) -> a[1]<b[1])
+  stop = length(freqs)
+  x = zeros(stop)
+  y = zeros(stop)
+  Z = FeatureVector()
+  Z[1] = convert(FloatingPoint, freqs[1])
+  for (i, pair) in enumerate(iter)
+    if !done(iter, i+1)
+      t = iter[i+1][1]
+    end
+    if (i != start(iter)) 
+      Z[pair[1]] = freqs[pair[1]] / (0.5*(t-q))
+    end
+    q = pair[1]
+    x[i] = log(pair[1])
+    y[i] = log(Z[pair[1]])
+  end
+  a, b = linreg(x,y)
+  if b < -1 
+    set_smooth!(d,_sgt_smoothing, [d.total, Z, a, b])
+  else 
+    set_smooth!(d,_gt_smoothing, [d.total, freqs])
+  end
+end
+
+function _sgt_smoothing(d::Distribution, key, data::Array)
+  if !haskey(d.space.vector_sum, key)
+    return data[2][1] / data[1]
+  end
+  #check to see which values of r using _gt_ value and when to switch to smooth
 end
