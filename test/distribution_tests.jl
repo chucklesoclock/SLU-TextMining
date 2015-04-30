@@ -175,8 +175,9 @@ facts("Smoothed probabilties sum to 1") do
   goodturing_smoothing!(d)
   sum = 0
   for feature in features(d)
-    sum += probability(d, feature)
+    sum  += probability(d, feature)
+    println("sum = ",sum)
   end
   sum += probability(d,"unk")
-  @fact sum =>1
+  @fact sum => 1
 end

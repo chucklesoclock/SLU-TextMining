@@ -87,8 +87,10 @@ end
 #add-delta smoothing, defaults to add-one smoothing
 function delta_smoothing!(d::Distribution, δ::Number=1)
   if δ <= 0
-    Base.warn("δ must be greater than 0") 
+    Base.error("δ must be greater than 0") 
   end
+  if δ > 1
+    Base.warn("δ is usually <= 1, proceed with caution")
   set_smooth!(d,_δ_smoothing,[δ,d.features,d.total])
 end
 
@@ -107,24 +109,25 @@ function _δ_smoothing(d::Distribution, key, data::Array)
 end
 
 #good turing count adjust, no smoothing for unseen frequencies
-function goodturing_smoothing!(d::Distribution{FeatureVector})
+function goodturing_estimator!(d::Distribution{FeatureVector})
   freqs = FeatureVector() 
   for value in values(d.space)
     freqs[value] += 1
   end
-  set_smooth!(d,_gt_smoothing, [d.total, freqs])
+  set_smooth!(d,_gt_estimator, [d.total, freqs])
 end
 
-function goodturing_smoothing!(d::Distribution)
+function goodturing_estimator!(d::Distribution)
   freqs = FeatureVector() 
   for value in values(d.space.vector_sum)
     freqs[value] += 1
   end
-  set_smooth!(d,_gt_smoothing, [d.total, freqs])
+  set_smooth!(d,_gt_estimator, [d.total, freqs])
 end
 
-function _gt_smoothing(d::Distribution{FeatureVector}, key, data::Array)
+function _gt_estimator(d::Distribution{FeatureVector}, key, data::Array)
   if !haskey(d.space, key)
+    println(data[2][1]," / ",data[1])
     return data[2][1] / data[1] #num of keys that occur once / total number of keys
   end
   c = d.space[key]
@@ -132,7 +135,7 @@ function _gt_smoothing(d::Distribution{FeatureVector}, key, data::Array)
   return c_adjust / data[1]
 end
 
-function _gt_smoothing(d::Distribution, key, data::Array)
+function _gt_estimator(d::Distribution, key, data::Array)
   if !haskey(d.space.vector_sum, key)
     return data[2][1] / data[1] #num of keys that occur once / total number of keys
   end
@@ -142,7 +145,7 @@ function _gt_smoothing(d::Distribution, key, data::Array)
 end
 
 #good-turing smoothing without tears
-#by gale, at&t labs
+#by gale and sampson, at&t labs
 function simplegoodturing_smoothing!(d::Distribution)
   freqs = FeatureVector() 
   for frequency in values(d.space.vector_sum)
@@ -157,6 +160,8 @@ function simplegoodturing_smoothing!(d::Distribution)
   for (i, pair) in enumerate(iter)
     if !done(iter, i+1)
       t = iter[i+1][1]
+    else
+      t = 2*t - q
     end
     if (i != start(iter)) 
       Z[pair[1]] = freqs[pair[1]] / (0.5*(t-q))
@@ -166,16 +171,54 @@ function simplegoodturing_smoothing!(d::Distribution)
     y[i] = log(Z[pair[1]])
   end
   a, b = linreg(x,y)
-  if b < -1 
-    set_smooth!(d,_sgt_smoothing, [d.total, Z, a, b])
+  if b < -1 #then we go ahead with simple good-turing smoothing
+    smoothedCounts = FeatureVector()
+    useY = false
+    for pair in iter
+      y = (pair[1]+1) * exp(a*log(pair[1]+1) + b) / exp(a*log(pair[1]+b))
+      if Z[pair[1]+1] == 0
+        if !useY
+          Base.warn("Reached unobserved count before switching to smoothed values")
+        end
+        useY = true
+      end
+      if useY
+        smoothedCounts[pair[1]] = y
+        continue
+      end
+      varTuringEstimate = 1.65 * (pair[1]+1)^2 * (iter[pair[1]+1]/pair[2]^2) * (1 + (iter[pair[1]+1]/pair[2]))
+      if abs(x-y) > sqrt(varTuringEstimate)
+        smoothedCounts[pair[1]] = (pair[1]+1) * iter[pair[1]+1] / pair[2]
+      else
+        useY = true
+        smoothedCounts[pair[1]] = y 
+      end
+    end 
+    p0 = freqs[1] / d.total
+    normalizingSum = 0
+    for pair in smoothedCounts
+      normalizingSum += pair[2]
+    end
+    normalizingSum = normalizingSum / d.total
+    set_smooth!(d,_sgt_smoothing, [p0, smoothedCounts, normalizingSum])
   else 
-    set_smooth!(d,_gt_smoothing, [d.total, freqs])
+    Base.warn("Log-linear fitting assumptions do not hold. Using good-turing estimator instead")
+    set_smooth!(d,_gt_estimator, [d.total, freqs])
   end
+end
+
+function _sgt_smoothing(d::Distribution{FeatureVector}, key, data::Array)
+  if !haskey(d.space, key)
+    return data[1]
+  end
+  c = d.space[key]
+  return (1- p0) * data[2][c] / data[3]
 end
 
 function _sgt_smoothing(d::Distribution, key, data::Array)
   if !haskey(d.space.vector_sum, key)
-    return data[2][1] / data[1]
+    return data[1]
   end
-  #check to see which values of r using _gt_ value and when to switch to smooth
+  c = d.space.vector_sum[key]
+  return (1- p0) * data[2][c] / data[3]
 end
